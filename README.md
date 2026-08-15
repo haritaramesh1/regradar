@@ -1,409 +1,500 @@
-# 🛡️ RegRadar
+RegRadar 🏦
 
-### RBI Regulatory Intelligence Assistant
+RBI Regulatory Intelligence & Retrieval-Augmented Generation System
 
-RegRadar is a Retrieval-Augmented Generation (RAG) application that allows users to ask questions about RBI cybersecurity and regulatory requirements using a collection of RBI regulatory documents.
+RegRadar is a Retrieval-Augmented Generation (RAG) system designed to answer questions from a collection of RBI regulatory documents. It retrieves relevant regulatory passages first and then uses an LLM to generate a grounded answer from the retrieved evidence.
 
-Instead of relying on general web knowledge, RegRadar retrieves relevant passages from the provided regulatory documents and uses them as evidence for generating answers.
+Project Objective
 
----
+RegRadar is designed to:
 
-## ✨ Features
+Search RBI regulatory documents
 
-- 🔎 Semantic vector search using FAISS
-- 🔤 Keyword retrieval using BM25
-- 🔀 Hybrid retrieval using Reciprocal Rank Fusion (RRF)
-- 🧠 Cross-encoder reranking
-- 🤖 Gemini-powered answer generation
-- 📚 Source-aware answers
-- 🛡️ Prompt-injection detection
-- 🚫 Refuses to answer when relevant document context is unavailable
-- 📊 Retrieval evaluation using Recall@1, Recall@3 and MRR
-- 🌑 Dark Streamlit interface
-- 🔐 Environment variables for API keys
+Retrieve relevant passages using semantic and keyword search
 
----
+Combine multiple retrieval methods
 
-## 🧠 How RegRadar Works
+Rerank retrieved passages using a CrossEncoder
 
-RegRadar follows a multi-stage RAG pipeline:
+Generate grounded answers using Gemini
 
-```text
-                    User Question
-                         │
-                         ▼
-                ┌─────────────────┐
-                │  Query Handling │
-                └────────┬────────┘
-                         │
-             ┌───────────┴───────────┐
-             ▼                       ▼
-      ┌──────────────┐       ┌──────────────┐
-      │ Vector Search│       │  BM25 Search │
-      │    FAISS     │       │   Keywords   │
-      └──────┬───────┘       └──────┬───────┘
-             │                      │
-             └──────────┬───────────┘
-                        ▼
-              ┌───────────────────┐
-              │   Hybrid Search   │
-              │       RRF         │
-              └─────────┬─────────┘
-                        │
-                        ▼
-              ┌───────────────────┐
-              │ Cross-Encoder     │
-              │    Reranking      │
-              └─────────┬─────────┘
-                        │
-                        ▼
-              ┌───────────────────┐
-              │ Relevant Evidence │
-              └─────────┬─────────┘
-                        │
-                        ▼
-              ┌───────────────────┐
-              │ Gemini Generation  │
-              └─────────┬─────────┘
-                        │
-                        ▼
-                    Final Answer
-````
+Cite source documents for important claims
 
----
+Refuse to answer when sufficient evidence is unavailable
 
-## 🔍 Retrieval Pipeline
+Protect against common prompt-injection attempts
 
-### 1. Vector Search
+Evaluate retrieval quality using a 30-question golden dataset
 
-RegRadar converts document chunks into embeddings and stores them in a FAISS index.
+Provide a Streamlit interface
 
-This allows semantically similar passages to be retrieved even when the user's wording does not exactly match the wording in the document.
+Architecture
 
-### 2. BM25 Search
+                  RBI Regulatory PDFs
+                          │
+                          ▼
+                   PDF Text Extraction
+                          │
+                          ▼
+                     Text Chunking
+                          │
+                          ▼
+                      chunks.json
+                          │
+                 ┌────────┴────────┐
+                 │                 │
+                 ▼                 ▼
+        FAISS Semantic Search   BM25 Keyword Search
+                 │                 │
+                 └────────┬────────┘
+                          ▼
+              Reciprocal Rank Fusion
+                          │
+                          ▼
+                  Candidate Chunks
+                          │
+                          ▼
+                  CrossEncoder Reranking
+                          │
+                          ▼
+                   Top Evidence
+                          │
+                          ▼
+                       Gemini
+                          │
+                    Grounded Answer
 
-BM25 provides traditional keyword-based retrieval.
+Retrieval Pipeline
 
-This is useful when a question contains important regulatory terminology, acronyms, or exact phrases.
+1. Semantic Search
 
-### 3. Hybrid Search
+Document chunks are embedded using all-MiniLM-L6-v2 and stored in a FAISS index. This retrieves passages based on semantic similarity.
 
-The vector and BM25 results are combined using Reciprocal Rank Fusion (RRF).
+2. BM25 Keyword Search
 
-This allows RegRadar to benefit from both:
+BM25 provides keyword-based retrieval and is useful for exact regulatory terminology and phrases.
 
-* semantic similarity
-* exact keyword matching
+3. Hybrid Search
 
-### 4. Cross-Encoder Reranking
+FAISS and BM25 results are combined using Reciprocal Rank Fusion (RRF), giving the system both semantic and exact-term retrieval signals.
 
-The retrieved candidates are passed through a cross-encoder model to determine which passages are most relevant to the question.
+4. CrossEncoder Reranking
 
-The highest-ranked passages are then provided to the language model.
+The hybrid stage produces candidates. A CrossEncoder evaluates the question together with each candidate passage and reranks them by relevance.
 
-### 5. Grounded Generation
+Grounded Answer Generation
 
-Gemini receives the retrieved evidence and is instructed to answer only from that evidence.
+Gemini is the primary generation provider. The generation prompt instructs the model to:
 
-If the documents do not contain enough information, RegRadar returns:
+Use only the retrieved regulatory evidence.
 
-```text
-I don't have enough information in my documents.
-```
+Avoid outside knowledge.
 
----
+Avoid inventing unsupported facts.
 
-## 📊 Retrieval Evaluation
+Mention source documents after important claims.
 
-RegRadar includes a golden evaluation dataset containing questions and their expected source documents.
+Return an insufficient-context response when the evidence does not support an answer.
 
-The retrieval system is evaluated using:
+If Gemini is temporarily unavailable, Groq is used as a fallback.
 
-| Metric   | Description                                           |
-| -------- | ----------------------------------------------------- |
-| Recall@1 | Whether the correct document appears first            |
-| Recall@3 | Whether the correct document appears in the top three |
-| MRR      | Measures how highly the correct document is ranked    |
+Safety & Reliability
 
-### Current Results
+Prompt Injection Protection
 
-Based on the current 30-question evaluation set:
+RegRadar checks for common prompt-injection attempts such as:
 
-| Search Method | Recall@1 |   Recall@3 |   MRR |
-| ------------- | -------: | ---------: | ----: |
-| Vector Search |    36.7% |      93.3% | 0.628 |
-| Hybrid Search |    46.7% | **100.0%** | 0.722 |
-| Smart Search  |    53.3% |      93.3% | 0.728 |
-
-Hybrid retrieval successfully placed the expected document within the top three results for all 30 evaluation questions.
-
----
-
-## 🛡️ Security
-
-RegRadar includes basic protection against prompt-injection attempts.
-
-Requests containing phrases such as:
-
-```text
 ignore previous instructions
 ignore all previous
-system prompt
-developer prompt
+ignore your instructions
 reveal your prompt
 show me your prompt
+system prompt
+developer prompt
 jailbreak
-bypass
 override
-```
 
-are rejected before being sent to the language model.
+Suspicious requests are rejected before normal answer generation.
 
-RegRadar also prevents unsupported questions from being answered using outside knowledge.
+Insufficient Context
 
-For example:
+When the retrieved evidence does not support a question, the system returns:
 
-```text
-What is the capital of France?
-```
-
-should return:
-
-```text
 I don't have enough information in my documents.
-```
 
----
+This conservative behavior is important for regulatory QA.
 
-## 🖥️ User Interface
+Retrieval Evaluation
 
-The application is built with Streamlit and provides:
+Retrieval quality was evaluated using a 30-question golden dataset with an expected source document for each question.
 
-* Dark cybersecurity-inspired interface
-* RegRadar branding
-* Question input
-* AI-generated answers
-* Retrieved document sources
-* Grounding indicator
-* Example questions
+Method
 
----
+Recall@1
 
-## 🧰 Tech Stack
+Recall@3
 
-### Python
+MRR
 
-Core application language.
+Vector Search
 
-### FAISS
+36.67%
 
-Used for vector similarity search.
+93.33%
 
-### Sentence Transformers
+0.6278
 
-Used for generating document and query embeddings.
+Hybrid Search
 
-### BM25
+46.67%
 
-Used for keyword-based retrieval.
+100.00%
 
-### Cross-Encoder
+0.7222
 
-Used to rerank retrieved candidates.
+Smart Search
 
-### Google Gemini
+53.33%
 
-Used to generate the final grounded answer.
+93.33%
 
-### Streamlit
+0.7278
 
-Used for the web interface.
+Hybrid Search achieved 100% Recall@3, meaning the correct source appeared within the top three retrieved results for all 30 evaluation questions.
 
-### Git / GitHub
+Smart Search achieved the highest Recall@1 (53.33%) and MRR (0.7278).
 
-Used for version control and project hosting.
+Example
 
----
+Question
 
-## 📁 Project Structure
+What is cyber resilience?
 
-```text
+Example RegRadar response
+
+RegRadar retrieves relevant RBI passages and generates a grounded response such as:
+
+Based on the provided RBI documents, Cyber Resilience is the ability of an organisation to continue to carry out its mission by anticipating and adapting to cyber threats and other relevant changes in the environment, and by withstanding, containing, and rapidly recovering from cyber incidents.
+
+The response includes the relevant RBI source documents.
+
+Streamlit UI
+
+Run the interface locally:
+
+streamlit run ui.py
+
+Streamlit normally opens:
+
+http://localhost:8501
+
+Local Setup
+
+Clone the repository
+
+git clone https://github.com/haritaramesh1/regradar.git
+cd regradar
+
+Create and activate a virtual environment
+
+python -m venv venv
+venv\Scripts\activate
+
+Install dependencies
+
+pip install -r requirements.txt
+
+Environment Variables
+
+Create a .env file locally:
+
+GEMINI_API_KEY=your_gemini_key
+GROQ_API_KEY=your_groq_key
+LANGFUSE_PUBLIC_KEY=your_langfuse_public_key
+LANGFUSE_SECRET_KEY=your_langfuse_secret_key
+LANGFUSE_HOST=your_langfuse_host
+
+Never commit .env to GitHub.
+
+Retrieval Evaluation
+
+Run:
+
+python eval_retrieval.py
+
+Evaluation output is stored in evaluation_results.json.
+
+Terminal Application
+
+Run:
+
+python answer.py
+
+Then enter a question such as:
+
+What is cyber resilience?
+
+Type exit to stop.
+
+FastAPI Backend
+
+Start the API locally:
+
+python -m uvicorn app:app --host 0.0.0.0 --port 8000
+
+Health check:
+
+http://localhost:8000/health
+
+Expected response:
+
+{
+  "status": "alive"
+}
+
+The question endpoint is:
+
+POST /ask
+
+Example request:
+
+{
+  "text": "What is cyber resilience?"
+}
+
+PowerShell example:
+
+$body = @{ text = "What is cyber resilience?" } | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri "http://localhost:8000/ask" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body $body
+
+Project Structure
+
 regradar/
 │
 ├── app.py
+├── ui.py
 ├── answer.py
-├── hybrid.py
 ├── memory.py
+├── hybrid.py
 ├── eval_retrieval.py
-├── golden.csv
-├── README.md
-├── .gitignore
+├── ingest.py
 │
 ├── chunks.json
-├── faiss.index
+├── regradar.index
+├── golden.csv
+├── evaluation_results.json
 │
-└── data/
-    └── RBI regulatory documents
-```
+├── requirements.txt
+├── .gitignore
+└── README.md
 
-> Generated indexes, chunks, and document files may vary depending on the local dataset setup.
+Main Components
 
----
+File
 
-## ⚙️ Setup
+Purpose
 
-### 1. Clone the repository
+ingest.py
 
-```bash
-git clone https://github.com/haritaramesh1/regradar.git
-```
+Extracts and chunks PDF text
 
-### 2. Enter the project
+chunks.json
 
-```bash
-cd regradar
-```
+Stores processed document chunks
 
-### 3. Create a virtual environment
+memory.py
 
-Windows:
+FAISS semantic index and search
 
-```powershell
-python -m venv venv
-```
+hybrid.py
 
-### 4. Activate the environment
+BM25 + FAISS hybrid retrieval and CrossEncoder reranking
 
-```powershell
-venv\Scripts\activate
-```
+answer.py
 
-### 5. Install dependencies
+Grounded generation, safety checks, and provider fallback
 
-```powershell
-pip install -r requirements.txt
-```
+app.py
 
----
+FastAPI backend
 
-## 🔑 Environment Variables
+ui.py
 
-Create a `.env` file in the project directory:
+Streamlit interface
 
-```text
-GEMINI_API_KEY=your_api_key_here
-```
+eval_retrieval.py
 
-The `.env` file is intentionally excluded from Git using `.gitignore`.
+Retrieval evaluation
 
-Never commit API keys or other secrets to the repository.
+golden.csv
 
----
+30-question evaluation dataset
 
-## 🚀 Running RegRadar
+evaluation_results.json
 
-Start the Streamlit application with:
+Evaluation output
 
-```powershell
-streamlit run app.py
-```
+regradar.index
 
-Then open the local Streamlit URL shown in the terminal.
+FAISS vector index
 
----
+requirements.txt
 
-## 🧪 Running Retrieval Evaluation
+Python dependencies
 
-To evaluate the retrieval pipeline:
+Design Decisions
 
-```powershell
-python eval_retrieval.py
-```
+Why Hybrid Retrieval?
 
-The evaluator reports:
+Semantic retrieval is useful for understanding meaning, while BM25 is effective for exact terminology. Combining them is useful for regulatory documents.
 
-```text
-Recall@1
-Recall@3
-MRR
-```
+Why CrossEncoder Reranking?
 
-for the configured evaluation dataset.
+The initial retrieval stage gathers candidates, while the CrossEncoder performs a more detailed relevance comparison before generation.
 
----
+Why Grounded Generation?
 
-## 💬 Example Questions
+Regulatory questions require evidence. RegRadar instructs the generation model to answer only from retrieved regulatory documents.
 
-Try asking:
+Why Refuse Unsupported Questions?
 
-```text
-What is cyber resilience?
-```
+A regulatory assistant should prefer an explicit insufficient-context response over an unsupported answer.
 
-```text
-What are the responsibilities of the Board regarding cybersecurity?
-```
+Current Project Status
 
-```text
-What is a Cyber Crisis Management Plan?
-```
+The core RegRadar system has been implemented and tested locally, including:
 
-```text
-What are the four aspects of a Cyber Crisis Management Plan?
-```
+PDF document processing
 
-```text
-What is risk-based transaction monitoring?
-```
+Text chunking
 
-```text
-What is device binding?
-```
+FAISS semantic retrieval
 
----
+BM25 keyword retrieval
 
-## 🎯 Project Goal
+Reciprocal Rank Fusion
 
-The goal of RegRadar is to demonstrate how a RAG system can be designed for regulatory information retrieval while reducing unsupported answers through:
+CrossEncoder reranking
 
-1. Multiple retrieval strategies
-2. Reranking
-3. Grounded generation
-4. Source attribution
-5. Retrieval evaluation
-6. Basic prompt-injection protection
+Retrieval evaluation
 
----
+Gemini answer generation
 
-## 🔮 Future Improvements
+Groq fallback
 
-Potential future improvements include:
+Prompt-injection protection
 
-* Better document chunking
-* Metadata-aware retrieval
-* Improved source highlighting
-* More extensive evaluation datasets
-* Query rewriting
-* Conversation history
-* Document upload functionality
-* Authentication
-* Cloud deployment
-* Improved citation precision
-* Automated retrieval evaluation during CI/CD
+Insufficient-context handling
 
----
+FastAPI backend
 
-## 👩‍💻 Author
+Streamlit UI
 
-**Harita Ramesh**
+Langfuse instrumentation
 
-Built as an exploration of Retrieval-Augmented Generation, information retrieval, regulatory intelligence, and AI application development.
+GitHub version control
 
----
+Public deployment is intentionally not required for the final local version so the high-quality retrieval architecture can be preserved without reducing it to fit limited hosting resources.
 
-## 📜 Disclaimer
+Future Improvements
 
-RegRadar is an experimental regulatory information retrieval tool.
+Page-level citations
 
-It is not a substitute for official RBI publications, professional legal/compliance advice, or an organisation's internal regulatory interpretation.
+Better document metadata filtering
 
+Regulation/date filtering
+
+Larger evaluation datasets
+
+Automated CI evaluation
+
+Improved evidence visualization
+
+More RBI regulatory documents
+
+Query rewriting
+
+Retrieval latency optimization
+
+Production deployment with sufficient compute resources
+
+Technologies
+
+Python
+
+FAISS
+
+Sentence Transformers
+
+BM25
+
+CrossEncoder
+
+Gemini
+
+Groq
+
+FastAPI
+
+Streamlit
+
+Langfuse
+
+Git/GitHub
+
+Final Architecture
+
+                    RBI PDFs
+                       │
+                       ▼
+                  PDF Extraction
+                       │
+                       ▼
+                 Text Chunking
+                       │
+                       ▼
+                  chunks.json
+                       │
+              ┌────────┴────────┐
+              │                 │
+              ▼                 ▼
+           FAISS              BM25
+       Semantic Search     Keyword Search
+              │                 │
+              └────────┬────────┘
+                       ▼
+                     RRF
+                       │
+                       ▼
+                Candidate Chunks
+                       │
+                       ▼
+                 CrossEncoder
+                   Reranking
+                       │
+                       ▼
+                  Top Evidence
+                       │
+                       ▼
+                    Gemini
+                       │
+                       ▼
+                Grounded Answer
+                       │
+                       ▼
+                  Streamlit UI
+
+Project Outcome
+
+RegRadar demonstrates a complete Retrieval-Augmented Generation pipeline for regulatory intelligence.
+
+The retrieval system was quantitatively evaluated using a 30-question golden dataset.
+
+Hybrid Search: 100% Recall@3
+
+Smart Search: 53.33% Recall@1 and 0.7278 MRR
