@@ -1,0 +1,17 @@
+{
+  "vector_search": {
+    "recall_at_1": 0.3667,
+    "recall_at_3": 0.9333,
+    "mrr": 0.6278
+  },
+  "hybrid_search": {
+    "recall_at_1": 0.4667,
+    "recall_at_3": 1.0,
+    "mrr": 0.7222
+  },
+  "smart_search": {
+    "recall_at_1": 0.5333,
+    "recall_at_3": 0.9333,
+    "mrr": 0.7278
+  }
+}

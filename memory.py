@@ -4,42 +4,16 @@ import faiss
 from sentence_transformers import SentenceTransformer
 
 
-# ============================================================
-# GLOBALS
-# ============================================================
-
-model = None
-chunks = None
-texts = None
-index = None
+print("Loading embedding model...")
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
-# ============================================================
-# LAZY LOADING
-# ============================================================
+print("Loading chunks...")
+with open("chunks.json", encoding="utf-8") as f:
+    chunks = json.load(f)
 
-def load_memory():
 
-    global model, chunks, texts, index
-
-    if model is not None:
-        return
-
-    print("Loading RegRadar retrieval system...")
-
-    print("Loading embedding model...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    print("Loading chunks...")
-    with open("chunks.json", encoding="utf-8") as f:
-        chunks = json.load(f)
-
-    texts = [c["text"] for c in chunks]
-
-    print("Loading FAISS index...")
-    index = faiss.read_index("regradar.index")
-
-    print("Retrieval system ready.")
+texts = [c["text"] for c in chunks]
 
 
 # ============================================================
@@ -47,8 +21,6 @@ def load_memory():
 # ============================================================
 
 def build_memory():
-
-    load_memory()
 
     print("Creating embeddings...")
 
@@ -58,20 +30,31 @@ def build_memory():
         show_progress_bar=True
     )
 
-    new_index = faiss.IndexFlatIP(384)
+    index = faiss.IndexFlatIP(384)
 
-    new_index.add(np.array(vectors))
+    index.add(np.array(vectors))
 
     faiss.write_index(
-        new_index,
+        index,
         "regradar.index"
     )
 
     print(
         "Memory built:",
-        new_index.ntotal,
+        index.ntotal,
         "chunks indexed"
     )
+
+
+# ============================================================
+# LOAD EXISTING INDEX
+# ============================================================
+
+print("Loading FAISS index...")
+
+index = faiss.read_index(
+    "regradar.index"
+)
 
 
 # ============================================================
@@ -79,8 +62,6 @@ def build_memory():
 # ============================================================
 
 def search(question, k=5):
-
-    load_memory()
 
     q_vec = model.encode(
         [question],
@@ -92,26 +73,18 @@ def search(question, k=5):
         k
     )
 
-    results = []
-
-    for i, score in zip(ids[0], scores[0]):
-
-        if i < 0:
-            continue
-
-        results.append(
-            (
-                chunks[i]["text"],
-                chunks[i]["source"],
-                float(score)
-            )
+    return [
+        (
+            chunks[i]["text"],
+            chunks[i]["source"],
+            float(score)
         )
-
-    return results
+        for i, score in zip(ids[0], scores[0])
+    ]
 
 
 # ============================================================
-# DIRECT TEST
+# BUILD INDEX ONLY WHEN RUN DIRECTLY
 # ============================================================
 
 if __name__ == "__main__":

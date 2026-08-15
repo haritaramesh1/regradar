@@ -1,8 +1,12 @@
 fastapi
-uvicorn==0.52.3
+uvicorn
 python-dotenv
 google-genai
 groq
 langfuse
+numpy
+faiss-cpu
+sentence-transformers
 rank-bm25
+pydantic
 

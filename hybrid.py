@@ -1,32 +1,45 @@
 import json
+
 from rank_bm25 import BM25Okapi
+from sentence_transformers import CrossEncoder
 
-# --------------------------------------------------
-# LOAD CHUNKS
-# --------------------------------------------------
+from memory import (
+    search as vector_search,
+    chunks
+)
 
-with open("chunks.json", encoding="utf-8") as f:
-    chunks = json.load(f)
 
-if not isinstance(chunks, list):
-    chunks = []
-
-# --------------------------------------------------
-# BM25 SEARCH
-# --------------------------------------------------
+# ============================================================
+# BM25 SETUP
+# ============================================================
 
 tokenized = [
-    chunk.get("text", "").lower().split()
-    for chunk in chunks
+    c["text"].lower().split()
+    for c in chunks
 ]
 
-bm25 = BM25Okapi(tokenized) if tokenized else None
+bm25 = BM25Okapi(
+    tokenized
+)
 
 
-def smart_search(question, k=3):
+# ============================================================
+# CROSS ENCODER RERANKER
+# ============================================================
 
-    if not chunks or bm25 is None:
-        return []
+reranker = CrossEncoder(
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
+
+
+# ============================================================
+# KEYWORD SEARCH
+# ============================================================
+
+def keyword_search(
+    question,
+    k=5
+):
 
     scores = bm25.get_scores(
         question.lower().split()
@@ -38,42 +51,189 @@ def smart_search(question, k=3):
         reverse=True
     )[:k]
 
-    max_score = max(scores) if len(scores) else 0
+    return [
+        (
+            chunks[i]["text"],
+            chunks[i]["source"],
+            scores[i]
+        )
+        for i in top_ids
+    ]
 
-    results = []
 
-    for i in top_ids:
+# ============================================================
+# HYBRID SEARCH
+# ============================================================
 
-        if max_score > 0:
-            confidence = float(scores[i] / max_score)
-        else:
-            confidence = 0.0
+def hybrid_search(
+    question,
+    k=5
+):
 
-        results.append(
-            (
-                chunks[i].get("text", ""),
-                chunks[i].get("source", "Unknown"),
-                confidence
+    vec = vector_search(
+        question,
+        k=10
+    )
+
+    key = keyword_search(
+        question,
+        k=10
+    )
+
+    points = {}
+
+
+    # --------------------------------------------------------
+    # FAISS VOTES
+    # --------------------------------------------------------
+
+    for rank, (
+        text,
+        source,
+        _
+    ) in enumerate(vec):
+
+        points[(text, source)] = (
+            points.get(
+                (text, source),
+                0
             )
+            +
+            1 / (60 + rank)
         )
 
-    return results
+
+    # --------------------------------------------------------
+    # BM25 VOTES
+    # --------------------------------------------------------
+
+    for rank, (
+        text,
+        source,
+        _
+    ) in enumerate(key):
+
+        points[(text, source)] = (
+            points.get(
+                (text, source),
+                0
+            )
+            +
+            1 / (60 + rank)
+        )
 
 
-# --------------------------------------------------
+    # --------------------------------------------------------
+    # MERGE
+    # --------------------------------------------------------
+
+    merged = sorted(
+        points.items(),
+        key=lambda kv: kv[1],
+        reverse=True
+    )[:k]
+
+
+    return [
+        (
+            text,
+            source,
+            score
+        )
+        for (
+            (text, source),
+            score
+        ) in merged
+    ]
+
+
+# ============================================================
+# SMART SEARCH
+# ============================================================
+
+def smart_search(
+    question,
+    k=3
+):
+
+    candidates = hybrid_search(
+        question,
+        k=10
+    )
+
+
+    pairs = [
+        (
+            question,
+            text
+        )
+        for text, _, _ in candidates
+    ]
+
+
+    scores = reranker.predict(
+        pairs
+    )
+
+
+    ranked = sorted(
+        zip(
+            candidates,
+            scores
+        ),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+
+    return [
+        (
+            text,
+            source,
+            float(score)
+        )
+        for (
+            (text, source, _),
+            score
+        ) in ranked[:k]
+    ]
+
+
+# ============================================================
 # TEST
-# --------------------------------------------------
+# ============================================================
 
 if __name__ == "__main__":
 
-    question = input("Ask a question: ")
+    question = input(
+        "Ask a question: "
+    )
 
-    results = smart_search(question)
+    results = smart_search(
+        question
+    )
 
-    for text, source, score in results:
+    for (
+        text,
+        source,
+        score
+    ) in results:
 
-        print("\n" + "=" * 80)
-        print(f"Score : {score:.4f}")
-        print(f"Source: {source}")
+        print(
+            "\n" + "=" * 80
+        )
+
+        print(
+            f"Score : {score:.4f}"
+        )
+
+        print(
+            f"Source: {source}"
+        )
+
         print()
-        print(text[:400])
+
+        print(
+            text[:400],
+            "..."
+        )
